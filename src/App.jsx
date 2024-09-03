@@ -24,7 +24,7 @@ function App() {
       return;
     }
   
-    const API_KEY = "AIzaSyBTtX12S2FZFb_ccEBTZ0EpUdOnzIKX40w";
+    const API_KEY = "AIzaSyDQ9ZSK81WVQznS4Hk4dlMm7-cfdjsvf5U";
 
     const requests = [];
   
