@@ -74,3 +74,40 @@
 hr {
   width: 100%;
 }
+
+.bottomContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.inputDate {
+  width: 70%;
+  text-align: center;
+}
+
+input[type="month"]::-webkit-clear-button {
+  display: none;
+}
+
+input[type="month"]::-ms-clear {
+  display: none;
+}
+
+input[type="month"]::-webkit-inner-spin-button {
+  display: none;
+}
+
+.detailCounter {
+  display: flex;
+  flex-direction: row;
+}
+
+.counter {
+  width: 50px;
+  background-color: rgb(24, 24, 24);
+  border-radius: 8px;
+  margin: 0 10px;
+}

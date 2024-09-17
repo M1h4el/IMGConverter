@@ -1,40 +1,41 @@
 import React, { useState, useCallback, useEffect } from "react";
 import "./App.css";
+import moment from "moment";
 import ExcelJS from "exceljs";
 import { useDropzone } from "react-dropzone";
 import { Box, Button, Typography } from "@mui/material";
-import { getPerformance } from "firebase/performance";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore,
   collection,
   addDoc,
-  doc,
-  getDoc,
   query,
   where,
   getDocs,
+  updateDoc,
 } from "firebase/firestore";
 
+const firebaseConfig = {
+  apiKey: "AIzaSyCHI4YfjzldGMnXPKZxTcSxICZh9l1SDuI",
+  authDomain: "imgconverter-f66dd.firebaseapp.com",
+  projectId: "imgconverter-f66dd",
+  storageBucket: "imgconverter-f66dd.appspot.com",
+  messagingSenderId: "896104832478",
+  appId: "1:896104832478:web:7dbe4a14bc9296a2add14f",
+  measurementId: "G-3H4PC5WBBX",
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
 function App() {
-  const [contador, setContador] = useState(1);
-  const [selectedImages, setSelectedImages] = useState([]);
-  const [keyValuePairs, setKeyValuePairs] = useState([]);
-  const [selectedMonth, setSelectedMonth] = useState("2023-09");
+  let [actualDate, setActualDate] = useState("");
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyCHI4YfjzldGMnXPKZxTcSxICZh9l1SDuI",
-    authDomain: "imgconverter-f66dd.firebaseapp.com",
-    projectId: "imgconverter-f66dd",
-    storageBucket: "imgconverter-f66dd.appspot.com",
-    messagingSenderId: "896104832478",
-    appId: "1:896104832478:web:7dbe4a14bc9296a2add14f",
-    measurementId: "G-3H4PC5WBBX",
-  };
+  let [selectedImages, setSelectedImages] = useState([]);
+  let [contador, setContador] = useState(0);
+  let [loading, setLoading] = useState(true);
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  const perf = getPerformance();
+  let [maxInputDate, setMaxInputDate] = useState(null);
 
   const onDrop = useCallback((acceptedFiles) => {
     setSelectedImages(acceptedFiles);
@@ -46,68 +47,76 @@ function App() {
     multiple: true,
   });
 
-  const handleMonthChange = (event) => {
-    setSelectedMonth(event.target.value);
-    console.log("Mes seleccionado:", event.target.value);
-
-    let arrayDate = event.target.value.split("-");
-    let yearInput = arrayDate[0];
-    let monthInput = arrayDate[1];
-
-    console.log(yearInput, monthInput);
-  };
-
-  
-
-  const getCounter = async (month, year) => {
+  async function fetchCounterDocs(month, year, create = false) {
     try {
       const q = query(
-        collection(db, "ImgProcessed"),
+        collection(db, "Contador"),
         where("Mes", "==", month),
         where("Año", "==", year)
       );
 
       const querySnapshot = await getDocs(q);
 
-      if (!querySnapshot.empty) {
-        let total = 0;
-        querySnapshot.forEach((doc) => {
-          total += doc.data().Contador || 0;
-        });
-        setContador(total);
-        return total;
-      } else {
-        let newMonth = parseInt(month);
-        let newYear = parseInt(year);
+      const document = querySnapshot?.docs[0]?.data();
 
-        if (newMonth === 12) {
-          newMonth = 1;
-          newYear += 1;
-        } else {
-          newMonth += 1;
-        }
+      let counter = document?.Contador;
 
-        const newDocRef = await addDoc(collection(db, "ImgProcessed"), {
-          Mes: newMonth,
-          Año: newYear,
+      if (counter >= 0) {
+        setContador(counter);
+      } else if (create) {
+        await addDoc(collection(db, "Contador"), {
+          Mes: parseInt(month),
+          Año: parseInt(year),
           Contador: 0,
         });
-
-        const newDocSnapshot = await getDoc(newDocRef);
-        const newContador = newDocSnapshot.data().Contador;
-
-        setContador(newContador);
-        return newContador;
+      } else {
+        setContador(0);
       }
-    } catch (e) {
-      console.error("Error al obtener o crear el documento: ", e);
+
+      setActualDate(`${year}-${month.toString().padStart(2, "0")}`);
+    } catch (error) {
+      console.error("Error al obtener los documentos: ", error);
     }
-  };
+
+    setLoading(false);
+  }
 
   useEffect(() => {
-    const [year, month] = selectedMonth.split("-");
-    getCounter(month, year);
-  }, [selectedMonth]);
+    let month = moment().month() + 1;
+    let year = moment().year();
+
+    setMaxInputDate(`${year}-${month.toString().padStart(2, "0")}`);
+
+    fetchCounterDocs(month, year, true);
+  }, []);
+
+  const incrementCounter = async (numberImages) => {
+    try {
+      let month = moment().month() + 1;
+      let year = moment().year();
+
+      const q = query(
+        collection(db, "Contador"),
+        where("Mes", "==", month),
+        where("Año", "==", year)
+      );
+      const doc = await getDocs(q);
+
+      const document = doc?.docs[0]?.data();
+
+      let counter = document?.Contador;
+
+      const ref = doc?.docs[0]?.ref;
+
+      await updateDoc(ref, { Contador: counter + numberImages });
+
+      if (actualDate == `${year}-${month.toString().padStart(2, "0")}`)
+        setContador(counter + numberImages);
+    } catch (error) {
+      console.error("Error al actualizar el contador: ", error);
+      throw error;
+    }
+  };
 
   const handleSubmit = async () => {
     if (selectedImages.length === 0) {
@@ -151,7 +160,8 @@ function App() {
         parseText(res.textAnnotations?.[0]?.description || "No text found")
       );
 
-      setKeyValuePairs(localResults);
+      await incrementCounter(requests.length);
+
       return localResults;
     } catch (error) {
       console.error("Error processing images:", error);
@@ -189,6 +199,14 @@ function App() {
           value = value.substring(1).trim();
         }
 
+      if (currentKey === "Social Security") {
+        const splitValue = value.split("-");
+        if (splitValue.length >= 3) {
+          value = splitValue[2];
+        } else {
+          value = "";
+        }
+      }
         result[currentKey] = value;
       } else if (currentKey) {
         result[currentKey] += " " + line.trim();
@@ -280,15 +298,28 @@ function App() {
     });
 
     const now = new Date();
+    const formattedDate = `${now.getDate()}-${
+      now.getMonth() + 1
+    }-${now.getFullYear()}_${now.getHours()}-${now.getMinutes()}-${now.getSeconds()}`;
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${now.toString()}.xlsx`;
+    a.download = `${formattedDate}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
+
+  const handleMonthChange = async (event) => {
+    let arrayDate = event.target.value.split("-");
+    let yearInput = arrayDate[0];
+    let monthInput = arrayDate[1].replace(/^0+/, "");
+
+    await fetchCounterDocs(parseFloat(monthInput), parseFloat(yearInput));
+  };
+
+  if (loading) return <div>Loading...</div>;
 
   return (
     <>
@@ -330,10 +361,10 @@ function App() {
           </Button>
           <Button
             sx={{
-              backgroundColor: "rgb(168, 41, 41);", // Color de fondo deseado
-              color: "#fff", // Color del texto
+              backgroundColor: "rgb(168, 41, 41)",
+              color: "#fff",
               "&:hover": {
-                backgroundColor: "#4d4d60", // Color de fondo en hover
+                backgroundColor: "#4d4d60",
               },
             }}
             variant="contained"
@@ -345,17 +376,17 @@ function App() {
         </div>
       </div>
       <hr />
-      <div>
-        <label htmlFor="monthPicker">Selecciona un mes: </label>
+      <div className="bottomContainer">
+        <label htmlFor="monthPicker">Selecciona un mes </label>
         <input
+            className="inputDate"
           id="monthPicker"
           type="month"
-          min="2024-08"
-          max="2024-12"
-          value={selectedMonth} // El valor del input es el estado
-          onChange={handleMonthChange} // Función que se ejecuta al cambiar el mes
+          max={maxInputDate}
+          value={actualDate}
+          onChange={handleMonthChange}
         />
-        <p>Mes seleccionado: {selectedMonth}</p>
+        <div className="detailCounter">Se han cargado<div className="counter">{contador}</div>imágenes el {actualDate} </div>
       </div>
     </>
   );
