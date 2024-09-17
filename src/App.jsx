@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
+import BounceLoader from 'react-spinners/BounceLoader';
 import "./App.css";
 import moment from "moment";
 import ExcelJS from "exceljs";
@@ -34,6 +35,7 @@ function App() {
   let [selectedImages, setSelectedImages] = useState([]);
   let [contador, setContador] = useState(0);
   let [loading, setLoading] = useState(true);
+  let [xlsxLoading, setXlsxLoading] = useState(false)
 
   let [maxInputDate, setMaxInputDate] = useState(null);
 
@@ -221,6 +223,9 @@ function App() {
   };
 
   const generateExcel = async () => {
+
+    setXlsxLoading(true)
+
     let getKeyValuePair = await handleSubmit();
 
     const workbook = new ExcelJS.Workbook();
@@ -309,6 +314,8 @@ function App() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+
+    setXlsxLoading(false)
   };
 
   const handleMonthChange = async (event) => {
@@ -319,8 +326,7 @@ function App() {
     await fetchCounterDocs(parseFloat(monthInput), parseFloat(yearInput));
   };
 
-  if (loading) return <div>Loading...</div>;
-
+  if (loading) return <BounceLoader />
   return (
     <>
       <div className="container">
@@ -356,8 +362,9 @@ function App() {
             variant="contained"
             onClick={generateExcel}
             disabled={!selectedImages.length}
+            sx={{width: "180px"}}
           >
-            Descargar .xlsx
+            {xlsxLoading ? <BounceLoader size={15}/> : "Descargar .xlsx"}
           </Button>
           <Button
             sx={{
