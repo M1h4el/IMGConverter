@@ -178,6 +178,8 @@ function App() {
       return batches;
     };
 
+    let parseTextCount = 0;
+
     try {
       const imageBatches = await createBatches(selectedImages);
       const allResults = [];
@@ -196,12 +198,23 @@ function App() {
         );
 
         const data = await response.json();
-        const localResults = data.responses.map((res) =>
-          parseText(res.textAnnotations?.[0]?.description || "No text found")
-        );
+
+        /* console.log(data.responses); */
+
+        const localResults = data.responses.map((res) => {
+          let parseTexta = parseText(
+            res.textAnnotations?.[0]?.description || "No text found",
+            parseTextCount
+          );
+
+          parseTextCount++;
+
+          return parseTexta;
+        });
+
+        console.log("localResults", localResults);
 
         allResults.push(...localResults);
-        console.log(1, localResults);
 
         const progressPercentage =
           25 + (25 * (batchIndex + 1)) / imageBatches.length;
@@ -209,8 +222,10 @@ function App() {
       }
 
       await incrementCounter(selectedImages.length);
+      
+      console.log("lineObject", lineObject);
 
-      console.log(2, allResults);
+      console.log("allResults", allResults);
 
       return allResults;
     } catch (error) {
@@ -233,11 +248,9 @@ function App() {
     return result;
   }
 
-  let lineAddress = "";
+  let lineObject = {};
 
-  let lineRegion = "";
-
-  const parseText = (inputText) => {
+  const parseText = (inputText, index) => {
     const keywords = [
       "Primary",
       "Social Security",
@@ -253,10 +266,120 @@ function App() {
       "E-Mail Primary",
     ];
 
-    const lines = inputText.split("\n");
+    const abbrev = [
+      "P.O.",
+      "PO",
+      "APT",
+      "BLDG",
+      "SUITE",
+      "FLOOR",
+      "DEPT",
+      "UNIT",
+      "ROOM",
+      "LOT",
+      "SPACE",
+      "TRAILER",
+      "C/O",
+      "RC",
+      "BUILDING ",
+      "FLOOR",
+      "SUITE",
+      "ROOM",
+    ];
 
-    lineAddress = lines[4];
-    lineRegion = lines[5];
+    const regex = new RegExp(`^(${abbrev.join("|")}) `);
+    const numberRegex = /^\d/;
+
+    let lines = inputText.split("\n");
+
+    lines = lines.filter(
+      (item) =>
+        !item.includes("[Do not negotiate with Spouse]") &&
+        !item.includes("Validated")
+    );
+
+    let addressFound = false;
+
+    if (!lines[0].includes("Primary")) {
+      lines.splice(0, 0, "Primary:");
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === "Address:") {
+        addressFound = true;
+        if (lines[i + 1] === "Address") {
+          lines.splice(i + 1, 1);
+        }
+
+        let phoneHomeIndex = lines.findIndex((line) =>
+          line.trim().startsWith("Phone Home")
+        );
+
+        if (phoneHomeIndex > i) {
+          let linesBetween = phoneHomeIndex - i - 1;
+          if (linesBetween === 2) {
+            lineObject[`lineAddress_${index}`] = lines[i + 1];
+            lineObject[`lineRegion_${index}`] = lines[i + 2];
+          } else if (linesBetween === 3) {
+            lineObject[`lineAddress_${index}`] = `${lines[i + 1]} ${
+              lines[i + 2]
+            }`;
+            lineObject[`lineRegion_${index}`] = lines[i + 3];
+          }
+
+          addressFound = true;
+        }
+
+        break;
+      }
+    }
+
+    /* console.log("LINES", lines, addressFound); */
+
+    if (!addressFound) {
+      let indexFound = -1;
+
+      for (let i = 0; i < lines.length; i++) {
+        if (regex.test(lines[i])) {
+          indexFound = i;
+          break;
+        }
+      }
+
+      if (indexFound === -1) {
+        for (let i = 0; i < lines.length; i++) {
+          if (numberRegex.test(lines[i].trim())) {
+            indexFound = i;
+            break;
+          }
+        }
+      }
+
+      if (indexFound !== -1) {
+        lines.splice(indexFound, 0, "Address:");
+
+        /* lineObject[`lineAddress_${index}`] = lines[indexFound + 1];
+        lineObject[`lineRegion_${index}`] = lines[indexFound + 2]; */
+
+        let phoneHomeIndex = lines.findIndex((line) =>
+          line.trim().startsWith("Phone Home")
+        );
+
+        if (phoneHomeIndex > indexFound) {
+          let linesBetween = phoneHomeIndex - indexFound - 1;
+
+          if (linesBetween === 2) {
+            lineObject[`lineAddress_${index}`] = lines[indexFound + 1];
+            lineObject[`lineRegion_${index}`] = lines[indexFound + 2];
+          } else if (linesBetween === 3) {
+            lineObject[`lineAddress_${index}`] = `${lines[indexFound + 1]} ${
+              lines[indexFound + 2]
+            }`;
+            lineObject[`lineRegion_${index}`] = lines[indexFound + 3];
+          }
+        }
+      }
+    }
 
     const result = {};
     let currentKey = "";
@@ -296,13 +419,13 @@ function App() {
       result[currentKey] = result[currentKey].trim();
     }
 
-    console.log("result: ", result);
-
     return result;
   };
 
   const generateExcel = async () => {
     setXlsxLoading(true);
+
+    let missingLines = [];
 
     if (loadingBarRef.current) {
       loadingBarRef.current.continuousStart();
@@ -310,49 +433,72 @@ function App() {
 
     let getKeyValuePair = await handleSubmit();
 
+    /* console.log("getKeyValuePair", getKeyValuePair); */
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Sheet1");
 
-    let updatedKeyValuePair = getKeyValuePair;
+    let updatedKeyValuePair = getKeyValuePair.map((entry) => ({ ...entry }));
 
-    if (updatedKeyValuePair[0]["Other"] !== "") {
-      updatedKeyValuePair[0][
-        "Mobile"
-      ] = `${updatedKeyValuePair[0]["Mobile"]} / ${updatedKeyValuePair[0]["Other"]}`;
+    /* console.log("updatedKeyValuePair", updatedKeyValuePair); */
 
-      delete updatedKeyValuePair[0]["Other"];
-    } else {
-      delete getKeyValuePair[0]["Other"];
-    }
+    let alertBag = {};
 
-    if (updatedKeyValuePair[0]["Address"] !== "") {
-      const splitAddress = updatedKeyValuePair[0]["Address"].split(",");
-      const address = lineAddress
+    updatedKeyValuePair.forEach((entry, index) => {
+      if (
+        lineObject[`lineRegion_${index}`] &&
+        lineObject[`lineAddress_${index}`]
+      ) {
+        if (entry["Other"] !== "") {
+          entry["Mobile"] = `${entry["Mobile"]} / ${entry["Other"]}`;
+          delete entry["Other"];
+        }
 
-      const matchZipCode =
-        updatedKeyValuePair[0]["Address"].match(/\b(\d{5})-/);
-      const zipCode = matchZipCode ? matchZipCode[1] : null;
+        if (entry["Work"] !== "") {
+          entry["Mobile"] = `${entry["Mobile"]} / ${entry["Work"]}`;
+          delete entry["Work"];
+        }
 
+        if (entry["Phone Home"] !== "") {
+          entry["Mobile"] = `${entry["Mobile"]} / ${entry["Phone Home"]}`;
+          delete entry["Phone Home"];
+        }
+        
+        if (entry["Address"] !== "") {
+          /*  console.log(
+            `lineAddress_${index}`,
+            lineObject[`lineAddress_${index}`]
+            ); */
+            
+            const address = lineObject[`lineAddress_${index}`];
+            
+            const zipCode =
+            lineObject[`lineRegion_${index}`].match(/\b\d{5}\b/)[0] || "";
+            
+            const state = entry["Address"].match(/, ([A-Z]{2})/)?.[1] || "";
+            
+          const city = lineObject[`lineRegion_${index}`].split(",")[0] || "";
 
-      const matchState = splitAddress[1]
-        ? splitAddress[1].trim().match(/^[A-Z]{2}/)
-        : null;
-      const state = matchState ? matchState[0] : null;
+          let objectAddress = {
+            zipCode,
+            city,
+            state,
+            address,
+          };
+          
+          entry["Zip Code"] = objectAddress.zipCode;
+          entry["City"] = objectAddress.city;
+          entry["State"] = objectAddress.state;
+          entry["Address"] = objectAddress.address;
 
-      const city = findCity(lineRegion);
-
-      let objectAddress = {
-        zipCode,
-        city,
-        state,
-        address,
-      };
-
-      updatedKeyValuePair[0]["Zip Code"] = objectAddress.zipCode;
-      updatedKeyValuePair[0]["City"] = objectAddress.city;
-      updatedKeyValuePair[0]["State"] = objectAddress.state;
-      updatedKeyValuePair[0]["Address"] = objectAddress.address;
-    }
+          entry["Mobile"] = entry["Mobile"]
+          .replace(/^[\/\s.]+/, '')
+          .replace(/[\/\s.]+$/, '');
+        }
+      } else {
+        alertBag[`${index}`] = entry["Primary"];
+      }
+    });
 
     const headers = [
       "Imagen",
@@ -363,8 +509,6 @@ function App() {
         "City",
         "State",
         "Zip Code",
-        "Phone Home",
-        "Work",
         "Mobile",
         "E-Mail Primary",
         "Spouse Name",
@@ -389,7 +533,6 @@ function App() {
 
     setProgressBar(35);
 
-    console.log("getkey 2", JSON.stringify(updatedKeyValuePair));
     for (let index = 0; index < updatedKeyValuePair.length; index++) {
       const data = updatedKeyValuePair[index];
       const rowData = [selectedImages[index].name];
@@ -458,6 +601,15 @@ function App() {
 
     if (loadingBarRef.current) {
       loadingBarRef.current.complete();
+    }
+
+    if (Object.keys(alertBag).length > 0) {
+      const formattedAlert = Object.entries(alertBag)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join("\n");
+
+      alert(`WARNING: An error has occurred in the following items. 
+      ${formattedAlert}`);
     }
   };
 
